@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""
+Optional status line (terminal Claude Code only; plugins can't set it, so add it by hand):
+
+  "statusLine": {"type": "command", "command": "python3 /path/to/statusline.py"}
+
+Shows:  Opus 5.5 | ctx ████░░░░░░ 41% (82k/200k) | 5h 23%
+Turns yellow at 150k tokens and red at 300k (same thresholds as the guard).
+"""
+import json, sys, time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import data_dir  # noqa: E402
+
+
+def k(n):
+    return f"{n/1000:.0f}k" if n < 1_000_000 else f"{n/1_000_000:.1f}M"
+
+
+def main():
+    try:
+        d = json.load(sys.stdin)
+    except Exception:
+        print("ctx ?")
+        return
+    cw = d.get("context_window") or {}
+    pct, size, sid = cw.get("used_percentage"), cw.get("context_window_size") or 200000, d.get("session_id")
+    if pct is not None and sid:
+        try:
+            st = data_dir() / "state"
+            st.mkdir(exist_ok=True)
+            (st / f"{sid}.json").write_text(json.dumps(
+                {"used_percentage": pct, "context_window_size": size, "ts": time.time()}))
+        except Exception:
+            pass
+    parts = [(d.get("model") or {}).get("display_name", "")]
+    if pct is not None:
+        p = float(pct)
+        used = p * size / 100
+        bar = "█" * int(round(p / 10)) + "░" * (10 - int(round(p / 10)))
+        color = "\033[31m" if used >= 300000 else "\033[33m" if used >= 150000 else "\033[32m"
+        parts.append(f"{color}ctx {bar} {p:.0f}% ({k(used)}/{k(size)})\033[0m")
+    rl = ((d.get("rate_limits") or {}).get("five_hour") or {}).get("used_percentage")
+    if rl is not None:
+        parts.append(f"5h {float(rl):.0f}%")
+    print(" | ".join(x for x in parts if x))
+
+
+if __name__ == "__main__":
+    main()

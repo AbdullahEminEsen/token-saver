@@ -1,0 +1,14 @@
+{
+  "name": "token-saver",
+  "description": "Token-saving tools for Claude Code: fresh-session handoff, test output filtering, lean working rules.",
+  "owner": {
+    "name": "Abdullah Emin Esen"
+  },
+  "plugins": [
+    {
+      "name": "token-saver",
+      "source": "./",
+      "description": "Fresh-session handoff when context gets large, test output filtering, and lean working rules for Claude Code."
+    }
+  ]
+}
