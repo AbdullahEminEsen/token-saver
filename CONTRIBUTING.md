@@ -5,7 +5,7 @@ Bug reports, compatibility reports, and pull requests are all welcome.
 ## Run the tests
 
 There is nothing to install: the hooks and the tests use only the Python standard library
-(3.9 or newer).
+(3.10 or newer).
 
 ```bash
 python -m unittest discover -s tests -t tests

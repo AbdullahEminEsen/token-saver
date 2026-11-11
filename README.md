@@ -35,7 +35,7 @@ In the **Claude desktop app (Code tab)**, which has no `/plugin` screen, add thi
 }
 ```
 
-Requires Python 3.9 or newer on your `PATH` (`python3` or `python`). No packages to install.
+Requires Python 3.10 or newer on your `PATH` (`python3` or `python`). No packages to install.
 
 ## What it does
 
@@ -149,7 +149,7 @@ Only setups that have actually been run are marked verified.
 | Setup | Status |
 |---|---|
 | Claude Code CLI 2.1.261, Windows 11, Python 3.12, Git Bash | **Verified** (v1.1.0): first-run threshold question, answer saved, question at the threshold, handoff written, next session loads it and continues |
-| Hooks on Linux, macOS, Windows with Python 3.9 and 3.13 | **Tested in CI** on every change (hook behavior, without Claude Code itself) |
+| Hooks on Linux, macOS, Windows with Python 3.10 and 3.13 | **Tested in CI** on every change (hook behavior, without Claude Code itself) |
 | Claude desktop app, Code tab | Install steps above; not yet re-verified for v1.1.0 |
 | Claude Code CLI on macOS and Linux | Not yet verified — [reports welcome](CONTRIBUTING.md#compatibility-reports) |
 | VS Code and JetBrains extensions | Not yet verified |
