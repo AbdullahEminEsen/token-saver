@@ -11,9 +11,9 @@ ANSI = re.compile(r"\x1b\[\d+m")
 
 
 class Statusline(HookCase):
-    def line(self, payload=None, raw=None):
+    def line(self, payload=None, raw=None, **env):
         parsed, proc = self.run_hook("statusline.py", payload, raw=raw,
-                                     PYTHONIOENCODING="cp1252", PYTHONUTF8="0")
+                                     PYTHONIOENCODING="cp1252", PYTHONUTF8="0", **env)
         self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
         return proc.stdout.decode("utf-8").strip()
 
@@ -25,11 +25,22 @@ class Statusline(HookCase):
     def test_full_line(self):
         out = self.line(self.payload(41))
         self.assertEqual(ANSI.sub("", out), "Opus | ctx ████░░░░░░ 41% (82k/200k) | 5h 23%")
-        self.assertIn("\x1b[32m", out)  # green under 150k
+        self.assertIn("\x1b[32m", out)  # green: no threshold chosen
 
-    def test_colors_follow_the_guard_thresholds(self):
-        self.assertIn("\x1b[33m", self.line(self.payload(80)))                  # 160k: yellow
-        self.assertIn("\x1b[31m", self.line(self.payload(35, size=1_000_000)))  # 350k: red
+    def test_colors_follow_the_chosen_thresholds(self):
+        two = {"TS_WARN_TOKENS": "150k,300k"}
+        self.assertIn("\x1b[32m", self.line(self.payload(41), **two))                   # 82k
+        self.assertIn("\x1b[33m", self.line(self.payload(80), **two))                   # 160k
+        self.assertIn("\x1b[31m", self.line(self.payload(35, size=1_000_000), **two))   # 350k
+
+    def test_single_threshold_turns_yellow_at_80_percent_of_it(self):
+        one = {"TS_WARN_TOKENS": "100k"}
+        self.assertIn("\x1b[32m", self.line(self.payload(35), **one))  # 70k
+        self.assertIn("\x1b[33m", self.line(self.payload(42), **one))  # 84k
+        self.assertIn("\x1b[31m", self.line(self.payload(55), **one))  # 110k
+
+    def test_stays_green_until_a_threshold_is_chosen(self):
+        self.assertIn("\x1b[32m", self.line(self.payload(90, size=1_000_000)))
 
     def test_saves_state_for_the_guard_fallback(self):
         self.line(self.payload(41))
@@ -74,11 +85,11 @@ class Manifests(unittest.TestCase):
             with self.subTest(option=name):
                 self.assertIn(f'"{name}"', code)
 
-    def test_default_thresholds_agree(self):
+    def test_no_built_in_threshold(self):
+        """The user chooses the threshold; the manifest must not ship a default for it.
+        (That the hooks have none is tested in test_context_guard.ChoosingTheThreshold.)"""
         plugin = self.load(".claude-plugin/plugin.json")
-        guard = (HOOKS / "context_guard.py").read_text(encoding="utf-8")
-        default = plugin["userConfig"]["warn_tokens"]["default"]
-        self.assertIn(f'DEFAULT_LEVELS = "{default}"', guard)
+        self.assertNotIn("default", plugin["userConfig"]["warn_tokens"])
 
     def test_marketplace_lists_the_plugin(self):
         market = self.load(".claude-plugin/marketplace.json")

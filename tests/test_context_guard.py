@@ -1,4 +1,5 @@
-"""Context guard: threshold handling, idle breaks, and missing or unusual context data."""
+"""Context guard: choosing a threshold, threshold handling, idle breaks, and missing or
+unusual context data."""
 import json
 import time
 import unittest
@@ -7,7 +8,11 @@ from helpers import HookCase, assistant, iso
 
 
 class GuardCase(HookCase):
+    THRESHOLDS = "150000,300000"  # what the user chose, unless a test says otherwise
+
     def guard(self, entries=None, prompt="fix the login bug", sid="s1", payload=None, **env):
+        if self.THRESHOLDS:
+            env.setdefault("TS_WARN_TOKENS", self.THRESHOLDS)
         if payload is None:
             payload = {"session_id": sid, "prompt": prompt}
             if entries is not None:
@@ -71,7 +76,8 @@ class Thresholds(GuardCase):
         self.assertWarns(ctx)
 
     def test_threshold_formats(self):
-        for raw in (" 50000 , 90000 ", "90000,50000", "5e4", "50000.0", "50000;90000", "50000,,"):
+        for raw in (" 50000 , 90000 ", "90000,50000", "50k", "50000.0", "50000;90000", "50000,,",
+                    "50.000", "50,000", "50K, 90K", "0.05m", "50 bin"):
             with self.subTest(raw=raw):
                 self.assertWarns(self.guard([assistant(60_000)], sid=f"fmt-{raw}",
                                             TS_WARN_TOKENS=raw))
@@ -79,12 +85,12 @@ class Thresholds(GuardCase):
     def test_bad_entries_are_skipped_not_fatal(self):
         self.assertWarns(self.guard([assistant(60_000)], TS_WARN_TOKENS="abc,50000,-5,0"))
 
-    def test_unusable_setting_falls_back_to_defaults(self):
-        for raw in ("abc", ",", "0", "-1", "nan", "inf"):
+    def test_unusable_setting_counts_as_not_set(self):
+        """A setting with no readable number must not crash; the user is asked to choose."""
+        for raw in ("abc", ",", "0", "-1", "nan", "inf", "5"):
             with self.subTest(raw=raw):
-                sid = f"bad-{raw}"
-                self.assertSilent(self.guard([assistant(100_000)], sid=sid, TS_WARN_TOKENS=raw))
-                self.assertWarns(self.guard([assistant(150_000)], sid=sid, TS_WARN_TOKENS=raw))
+                ctx = self.guard([assistant(400_000)], sid=f"bad-{raw}", TS_WARN_TOKENS=raw)
+                self.assertIn("First-time setup", ctx)
 
     def test_corrupt_state_file_is_treated_as_empty(self):
         state = self.data / "state"
@@ -97,6 +103,157 @@ class Thresholds(GuardCase):
         self.assertWarns(self.guard([assistant(152_000)], sid="../../evil"))
         self.assertFalse((self.tmp / "evil.warned").exists())
         self.assertEqual([p.parent for p in self.data.rglob("*.warned")], [self.data / "state"])
+
+
+class ChoosingTheThreshold(GuardCase):
+    """Nothing is built in: the user picks the number, in chat, the first time."""
+
+    THRESHOLDS = None
+
+    def saved(self):
+        f = self.data / "config.json"
+        return json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
+
+    def test_first_prompt_asks_and_lets_the_request_continue(self):
+        ctx = self.guard([assistant(40_000)])
+        self.assertIn("First-time setup", ctx)
+        self.assertIn("at how many tokens", ctx)
+        self.assertIn("request as normal", ctx)
+        self.assertIsNone(self.saved())
+
+    def test_question_is_also_shown_to_the_user_directly(self):
+        """Claude may skip the question; the notice from Claude Code itself can't be skipped."""
+        parsed, proc = self.run_hook("context_guard.py", {"session_id": "s1", "prompt": "hi"})
+        self.assertIn("no notification threshold set yet", parsed["systemMessage"])
+        self.assertIn("token-saver off", parsed["systemMessage"])
+        parsed, proc = self.run_hook("context_guard.py", {"session_id": "s1", "prompt": "100k"})
+        self.assertNotIn("systemMessage", parsed)
+
+    def test_asks_even_before_any_context_is_known(self):
+        self.assertIn("First-time setup", self.guard())
+
+    def test_no_warning_at_any_size_until_chosen(self):
+        self.guard([assistant(40_000)])
+        self.assertSilent(self.guard([assistant(900_000)]))
+
+    def test_asks_once_per_session(self):
+        self.assertIn("First-time setup", self.guard([assistant(40_000)]))
+        self.assertSilent(self.guard([assistant(40_000)], prompt="now add a test"))
+        self.assertIn("First-time setup", self.guard([assistant(40_000)], sid="next-session"))
+
+    def test_answer_is_saved_and_confirmed(self):
+        self.guard([assistant(40_000)])
+        ctx = self.guard([assistant(40_000)], prompt="100k")
+        self.assertIn("Saved", ctx)
+        self.assertIn("100k tokens", ctx)
+        self.assertEqual(self.saved()["levels"], [100_000])
+
+    def test_answer_forms(self):
+        for i, (answer, expected) in enumerate([
+                ("120000", [120_000]), ("150k, 300k", [150_000, 300_000]),
+                ("150k ve 300k", [150_000, 300_000]), ("~200k tokens.", [200_000]),
+                ("1.5m", [1_500_000]), ("80.000", [80_000]), ("90 bin", [90_000])]):
+            with self.subTest(answer=answer):
+                sid = f"answer-{i}"
+                (self.data / "config.json").unlink(missing_ok=True) if self.data.exists() else None
+                self.guard([assistant(40_000)], sid=sid)
+                self.guard([assistant(40_000)], sid=sid, prompt=answer)
+                self.assertEqual(self.saved()["levels"], expected)
+
+    def test_chosen_threshold_is_then_enforced(self):
+        self.guard([assistant(40_000)])
+        self.guard([assistant(40_000)], prompt="100k")
+        self.assertSilent(self.guard([assistant(90_000)]))
+        self.assertWarns(self.guard([assistant(101_000)]), "~101k tokens")
+        self.assertSilent(self.guard([assistant(102_000)]))
+
+    def test_chosen_threshold_applies_to_later_sessions_without_asking(self):
+        self.guard([assistant(40_000)])
+        self.guard([assistant(40_000)], prompt="100k")
+        self.assertSilent(self.guard([assistant(40_000)], sid="later"))
+        self.assertWarns(self.guard([assistant(120_000)], sid="later"))
+
+    def test_an_ordinary_message_is_not_taken_as_the_answer(self):
+        self.guard([assistant(40_000)])
+        for prompt in ("fix issue 12345 now", "2", "use port 8080 please", "yes", "bump to v2.0.0"):
+            with self.subTest(prompt=prompt):
+                self.assertSilent(self.guard([assistant(40_000)], prompt=prompt))
+                self.assertIsNone(self.saved())
+
+    def test_a_number_is_not_an_answer_before_the_question(self):
+        self.guard([assistant(40_000)], prompt="100k", sid="fresh")
+        self.assertIsNone(self.saved())
+
+    def test_settings_value_means_no_question(self):
+        self.assertSilent(self.guard([assistant(40_000)], TS_WARN_TOKENS="100k"))
+        self.assertWarns(self.guard([assistant(120_000)], TS_WARN_TOKENS="100k"))
+
+    def test_settings_value_beats_the_saved_one(self):
+        self.guard([assistant(40_000)])
+        self.guard([assistant(40_000)], prompt="100k")
+        self.assertSilent(self.guard([assistant(120_000)], sid="x", TS_WARN_TOKENS="500k"))
+
+    def test_corrupt_config_counts_as_not_set(self):
+        self.data.mkdir(parents=True)
+        for junk in ("{oops", "[]", '{"levels": "150k"}', '{"levels": [5, null, "x"]}'):
+            with self.subTest(junk=junk):
+                (self.data / "config.json").write_text(junk)
+                ctx = self.guard([assistant(400_000)], sid=f"junk-{len(junk)}")
+                self.assertIn("First-time setup", ctx)
+
+
+class Commands(GuardCase):
+    """"token-saver ..." typed in chat changes or shows the setting, at any time."""
+
+    THRESHOLDS = None
+
+    def saved(self):
+        return json.loads((self.data / "config.json").read_text(encoding="utf-8"))
+
+    def test_set(self):
+        for prompt in ("token-saver 200k", "Token-Saver: 200k", "/token-saver:threshold 200k",
+                       "token-saver 200000"):
+            with self.subTest(prompt=prompt):
+                ctx = self.guard([assistant(40_000)], prompt=prompt)
+                self.assertIn("Saved", ctx)
+                self.assertEqual(self.saved()["levels"], [200_000])
+
+    def test_change_replaces_the_old_value(self):
+        self.guard(prompt="token-saver 200k")
+        self.guard(prompt="token-saver 80k, 160k")
+        self.assertEqual(self.saved()["levels"], [80_000, 160_000])
+        self.assertWarns(self.guard([assistant(90_000)]))
+
+    def test_off_stops_warnings_and_the_setup_question(self):
+        ctx = self.guard(prompt="token-saver off")
+        self.assertIn("now off", ctx)
+        self.assertSilent(self.guard([assistant(900_000)]))
+        self.assertSilent(self.guard([assistant(900_000)], sid="another"))
+
+    def test_setting_a_number_turns_it_back_on(self):
+        self.guard(prompt="token-saver kapat")
+        self.guard(prompt="token-saver 100k")
+        self.assertWarns(self.guard([assistant(150_000)]))
+
+    def test_status(self):
+        self.assertIn("not set yet", self.guard(prompt="token-saver status"))
+        self.guard(prompt="token-saver 150k,300k")
+        self.assertIn("150k and 300k tokens (saved)", self.guard(prompt="token-saver"))
+        self.guard(prompt="token-saver off")
+        self.assertIn("turned off", self.guard(prompt="token-saver durum"))
+        self.assertIn("from settings", self.guard(prompt="token-saver status", TS_WARN_TOKENS="90k"))
+
+    def test_saving_under_a_settings_override_says_so(self):
+        ctx = self.guard(prompt="token-saver 200k", TS_WARN_TOKENS="90k")
+        self.assertIn("takes priority", ctx)
+
+    def test_a_sentence_about_the_plugin_is_not_a_command(self):
+        self.guard(prompt="token-saver off")  # so the setup question stays out of the way
+        for prompt in ("token-saver is great, how does it work?", "token-saver-foo 300000",
+                       "token-saver set it to whatever you think"):
+            with self.subTest(prompt=prompt):
+                self.assertSilent(self.guard([assistant(40_000)], prompt=prompt))
+        self.assertEqual(self.saved()["levels"], [])
 
 
 class SkippedPrompts(GuardCase):
@@ -161,6 +318,12 @@ class UnusualContextData(GuardCase):
     def test_no_transcript_path(self):
         self.assertSilent(self.guard())
         self.assertIn("context size unknown", self.log_text())
+
+    def test_missing_context_data_before_a_threshold_is_chosen(self):
+        for raw in ("", "{oops", "[]", "null"):
+            with self.subTest(raw=raw):
+                parsed, proc = self.run_hook("context_guard.py", None, raw=raw)
+                self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, b"", b""))
 
     def test_null_fields(self):
         self.assertSilent(self.guard(payload={"session_id": None, "prompt": None,
@@ -286,7 +449,7 @@ class WarningText(GuardCase):
     def test_output_is_valid_hook_json(self):
         parsed, proc = self.run_hook("context_guard.py", {
             "session_id": "s1", "prompt": "hi",
-            "transcript_path": self.transcript([assistant(152_000)])})
+            "transcript_path": self.transcript([assistant(152_000)])}, TS_WARN_TOKENS="150k")
         self.assertEqual(parsed["hookSpecificOutput"]["hookEventName"], "UserPromptSubmit")
         proc.stdout.decode("ascii")  # safe on any console code page
 

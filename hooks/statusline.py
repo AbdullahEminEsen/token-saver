@@ -5,13 +5,14 @@ Optional status line (terminal Claude Code only; plugins can't set it, so add it
   "statusLine": {"type": "command", "command": "python3 /path/to/statusline.py"}
 
 Shows:  Opus 5.5 | ctx ████░░░░░░ 41% (82k/200k) | 5h 23%
-Turns yellow at 150k tokens and red at 300k (same thresholds as the guard).
+Turns yellow at your first threshold and red at your last (with a single threshold: yellow at
+80% of it, red at it). Stays green until you have chosen one.
 """
 import json, sys, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import data_dir  # noqa: E402
+from _common import data_dir, thresholds  # noqa: E402
 
 
 def k(n):
@@ -46,7 +47,10 @@ def main():
         p = float(pct)
         used = p * size / 100
         bar = "█" * int(round(p / 10)) + "░" * (10 - int(round(p / 10)))
-        color = "\033[31m" if used >= 300000 else "\033[33m" if used >= 150000 else "\033[32m"
+        levels, _ = thresholds()
+        red = levels[-1] if levels else float("inf")
+        yellow = levels[0] if len(levels) > 1 else red * 0.8
+        color = "\033[31m" if used >= red else "\033[33m" if used >= yellow else "\033[32m"
         parts.append(f"{color}ctx {bar} {p:.0f}% ({k(used)}/{k(size)})\033[0m")
     rl = ((d.get("rate_limits") or {}).get("five_hour") or {}).get("used_percentage")
     if rl is not None:

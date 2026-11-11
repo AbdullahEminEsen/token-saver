@@ -79,7 +79,7 @@ class Execution(FilterCase):
         bindir = self.tmp / "bin"
         bindir.mkdir(exist_ok=True)
         script = bindir / "pytest"
-        script.write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8", newline="\n")
+        script.write_bytes(("#!/usr/bin/env bash\n" + body).encode("utf-8"))
         script.chmod(script.stat().st_mode | stat.S_IEXEC)
         return bindir
 

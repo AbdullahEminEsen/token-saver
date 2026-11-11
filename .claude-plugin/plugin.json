@@ -2,20 +2,25 @@
   "name": "token-saver",
   "displayName": "Token Saver",
   "version": "1.1.0",
-  "description": "Cuts Claude Code token usage: offers a fresh session with an automatic handoff when context gets large, filters test output down to failures, and adds lean working rules.",
+  "description": "Cuts Claude Code token usage: offers a fresh session with an automatic handoff when context passes the size you choose, filters test output down to failures, and adds lean working rules.",
   "author": {
     "name": "Abdullah Emin Esen",
     "url": "https://esenabdullahemin.com"
   },
   "repository": "https://github.com/AbdullahEminEsen/token-saver",
   "license": "MIT",
-  "keywords": ["tokens", "context", "cost", "handoff", "compact"],
+  "keywords": [
+    "tokens",
+    "context",
+    "cost",
+    "handoff",
+    "compact"
+  ],
   "userConfig": {
     "warn_tokens": {
       "type": "string",
-      "title": "Warning thresholds (tokens)",
-      "description": "Comma-separated context sizes at which Claude offers a fresh session. Each fires once per session.",
-      "default": "150000,300000"
+      "title": "Notify at (tokens)",
+      "description": "Context size at which Claude offers a fresh session, e.g. 100k or 150k,300k. Leave empty to be asked in your first session."
     },
     "idle_minutes": {
       "type": "number",

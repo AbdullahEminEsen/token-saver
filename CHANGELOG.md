@@ -15,9 +15,9 @@ Reliability release: the hooks now have a test suite, and the problems it found 
   the old location is still loaded.
 - **Status line crash on Windows.** The context bar characters can't be printed in legacy code
   pages; output is now UTF-8.
-- **A typo in the thresholds no longer disables the guard.** A `warn_tokens` value such as
-  `150k,300k` made the hook crash on every prompt, so no warning was ever shown. Unreadable entries
-  are now skipped, and if none are usable the defaults (`150000,300000`) apply.
+- **A typo in the thresholds no longer crashes the guard.** A `warn_tokens` value such as
+  `150k,300k` made the hook fail on every prompt, so no warning was ever shown. That form is now
+  understood, unreadable entries are skipped, and if none are usable you are asked in chat.
 - **Wrong context size after an error reply.** Synthetic and error replies carry an all-zero usage
   block, which was read as "context is 0 tokens". The guard now looks past them to the last real
   reply.
@@ -31,6 +31,14 @@ Reliability release: the hooks now have a test suite, and the problems it found 
 
 ### Changed
 
+- **You choose the threshold; there is no built-in one any more.** 1.0 always warned at 150k and
+  300k tokens. Now the first session asks at how many tokens you want to be notified, and saves
+  your answer (`100k`, `150k, 300k`, …) for every project. Type `token-saver 200k` to change it,
+  `token-saver off` to turn it off, `token-saver status` to see it. Nothing is offered until you
+  have answered. **Upgrading:** to keep the old behavior, answer `150k, 300k` (or set
+  `TS_WARN_TOKENS=150000,300000`).
+- Thresholds can be written as `150k`, `1.5m` or `150.000` as well as plain numbers.
+- The status line turns yellow and red at your thresholds instead of at 150k and 300k.
 - **Thresholds re-arm after `/compact`.** Each threshold used to fire once per session, full stop.
   Now, if the context drops back under a threshold and later grows past it again, you are asked
   again.
@@ -40,8 +48,9 @@ Reliability release: the hooks now have a test suite, and the problems it found 
 
 ### Added
 
+- Demo GIF in the README, replaying a real run.
 - Test suite (`python -m unittest discover -s tests -t tests`, standard library only) covering
-  threshold handling, missing or unusual context data, and the pending request surviving a handoff
+  choosing a threshold, threshold handling, missing or unusual context data, and the pending request surviving a handoff
   unchanged.
 - CI on Linux, Windows, and macOS.
 - [Compatibility table](README.md#compatibility), [roadmap](ROADMAP.md), and

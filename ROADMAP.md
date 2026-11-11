@@ -8,7 +8,8 @@ something moved up, or have an idea that isn't listed, open an issue.
 - **Verify more setups.** The [compatibility table](README.md#compatibility) only lists what has
   actually been run. Wanted: reports from macOS and Linux terminals, and from the VS Code and
   JetBrains extensions.
-- **Recorded demo.** A short terminal recording of the real ask → handoff → `/clear` → continue flow.
+- **Screen-recorded demo.** The README GIF replays the text of a real run; a recording of the
+  interactive terminal, including `/clear`, would show it as you actually see it.
 
 ## Next
 
@@ -18,8 +19,8 @@ something moved up, or have an idea that isn't listed, open an issue.
   `gradle test`, `rspec`, `make test`.
 - **Windows without Git Bash.** The test filter rewrites the command with POSIX shell syntax, so it
   needs the Bash tool. Skip it cleanly when the command is headed for PowerShell.
-- **Per-project settings.** Thresholds in a project file, so a large monorepo and a small script
-  can have different limits.
+- **Per-project thresholds.** The threshold you choose applies everywhere; let a large monorepo
+  and a small script have different ones.
 
 ## Later
 

@@ -22,7 +22,7 @@ for building transcript entries of a given size.
 
 | File | Covers |
 |---|---|
-| `tests/test_context_guard.py` | Thresholds, idle breaks, missing or unusual transcript data, status line fallback |
+| `tests/test_context_guard.py` | Choosing a threshold, the `token-saver` commands, thresholds, idle breaks, missing or unusual transcript data, status line fallback |
 | `tests/test_handoff.py` | The pending request reaching the new session unchanged, one-time use, stale handoffs, working rules |
 | `tests/test_test_filter.py` | Which commands are rewritten, and that exit code and failures survive |
 | `tests/test_statusline_and_manifests.py` | Status line output, and that README, manifests, and code agree |
@@ -30,7 +30,7 @@ for building transcript entries of a given size.
 ## Try a hook by hand
 
 ```bash
-echo '{"session_id":"demo","prompt":"hi","transcript_path":"/path/to/session.jsonl"}' | python hooks/context_guard.py
+echo '{"session_id":"demo","prompt":"hi","transcript_path":"/path/to/session.jsonl"}' | TS_WARN_TOKENS=100k python hooks/context_guard.py
 ```
 
 Set `CLAUDE_PLUGIN_DATA` to a scratch folder first if you don't want to touch your real state.

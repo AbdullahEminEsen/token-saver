@@ -5,12 +5,17 @@ UserPromptSubmit hook — context guard.
 When the conversation context crosses a token threshold, tells Claude to ask the user
 (before doing anything) whether to continue the request in a fresh session.
 
+There is no built-in threshold. Until the user has chosen one, the first prompt of a session
+makes Claude ask "at how many tokens should I notify you?"; this hook reads the answer from
+the user's next message and saves it. "token-saver 200k", "token-saver off" and
+"token-saver status" change or show it later.
+
 Thresholds are ABSOLUTE TOKENS, not percentages: every message re-processes the whole
 context, so 300k tokens costs the same whether the window is 200k or 1M. This also means
 we never need to know the window size (the Desktop app doesn't run status lines).
 
 Options (plugin /config, or TS_* env vars for a manual install):
-  warn_tokens        "150000,300000"  thresholds; each fires once per session
+  warn_tokens        e.g. "150k,300k" thresholds; overrides the saved answer
   idle_minutes       "60"             after a break this long the prompt cache is cold...
   idle_min_tokens    "60000"          ...so suggest a fresh session if context is at least this big
 """
@@ -19,10 +24,13 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import data_dir, log, opt  # noqa: E402
+from _common import (data_dir, fmt, log, opt, parse_levels, save_config,  # noqa: E402
+                     thresholds, _NUMBER)
 
-
-DEFAULT_LEVELS = "150000,300000"
+COMMAND = re.compile(r"^/?token-saver(?::threshold)?(?![\w-])[\s:=]*(.*)$", re.I | re.S)
+OFF_WORDS = {"off", "disable", "none", "kapat", "kapalı", "kapali"}
+STATUS_WORDS = {"", "status", "durum", "?"}
+FILLER = re.compile(r"\b(tokens?|tokende|and|ve|at|or|veya|da|de)\b|[~\s.,;:!?'\"()-]")
 
 
 def num(name, default):
@@ -32,18 +40,68 @@ def num(name, default):
         return int(default)
 
 
-def parse_levels(raw):
-    """"150000, junk,," -> [150000]. Bad or non-positive entries are skipped; if nothing
-    usable is left, the defaults apply (a typo must never disable the guard)."""
-    levels = set()
-    for part in str(raw).replace(";", ",").split(","):
-        try:
-            v = int(float(part.strip()))
-        except (ValueError, OverflowError):
-            continue
-        if v > 0:
-            levels.add(v)
-    return sorted(levels) or parse_levels(DEFAULT_LEVELS)
+def is_bare_answer(text):
+    """True when the text is nothing but threshold numbers: "100k", "150k ve 300k tokens"."""
+    low = text.strip().lower()
+    if not low or len(low) > 60 or not parse_levels(low):
+        return False
+    return FILLER.sub("", _NUMBER.sub("", low)) == ""
+
+
+def emit(ctx, notice=None):
+    """ctx goes to Claude; notice (optional) is shown to the user by Claude Code itself."""
+    out = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ctx}}
+    if notice:
+        out["systemMessage"] = notice
+    print(json.dumps(out))
+
+
+SETUP_NOTICE = ("Token Saver: no notification threshold set yet. Reply with a number such as 100k "
+                "(or two, like 150k,300k) to choose when a fresh session is offered, "
+                "or type: token-saver off")
+
+
+def listing(levels):
+    return " and ".join(fmt(lv) for lv in levels) + " tokens"
+
+
+CHANGE_HINT = ("They can change it any time by typing \"token-saver 200k\", or turn the "
+               "notification off with \"token-saver off\".")
+
+
+def save_levels(levels):
+    save_config(levels=levels, off=False)
+    log(f"guard: threshold saved {levels}")
+    _, source = thresholds()
+    note = ("" if source != "settings" else
+            " Note for the user: a warn_tokens value in the plugin options or TS_WARN_TOKENS is "
+            "set and takes priority over this saved value until it is removed.")
+    return (f"[token-saver] Saved: the user will be asked about a fresh session when the context "
+            f"passes {listing(levels)}. Tell them so in one short line, in their language. "
+            f"{CHANGE_HINT}{note}")
+
+
+def handle_command(arg):
+    """"token-saver <something>" typed by the user. Returns True if it was a command."""
+    word = arg.strip().lower()
+    if word in STATUS_WORDS:
+        levels, source = thresholds()
+        state = (f"notifying at {listing(levels)} ({'from settings' if source == 'settings' else 'saved'})"
+                 if levels else "turned off" if source == "off" else "not set yet")
+        emit(f"[token-saver] The user asked for the Token Saver setting. It is: {state}. "
+             f"Tell them in one short line, in their language. {CHANGE_HINT}")
+        return True
+    if word in OFF_WORDS:
+        save_config(levels=[], off=True)
+        log("guard: threshold turned off")
+        emit("[token-saver] Saved: the context-size notification is now off. Tell the user so in "
+             "one short line, in their language. They can turn it back on by typing "
+             "\"token-saver 150k\" with the number they want.")
+        return True
+    if is_bare_answer(arg):
+        emit(save_levels(parse_levels(arg)))
+        return True
+    return False
 
 
 def read_warned(path):
@@ -126,8 +184,33 @@ def main():
         return
     sid = re.sub(r"[^A-Za-z0-9_.-]", "_", str(data.get("session_id") or "unknown"))
     prompt = str(data.get("prompt") or "").strip()
+    cmd = COMMAND.match(prompt)
+    if cmd and handle_command(cmd.group(1)):
+        return
     if prompt.startswith("/") or "handoff" in prompt.lower():
         return
+
+    state = data_dir() / "state"
+    state.mkdir(exist_ok=True)
+    levels, source = thresholds()
+    if source is None:  # the user hasn't chosen a threshold yet
+        asked_f = state / f"{sid}.setup"
+        if asked_f.exists():
+            if is_bare_answer(prompt):
+                emit(save_levels(parse_levels(prompt)) + " Their message was only this answer; "
+                     "if a request of theirs is still unfinished, carry on with it.")
+                return
+        else:
+            asked_f.write_text("asked")
+            log("guard: setup question shown")
+            emit("""[token-saver] First-time setup: the user has not chosen when to be notified about
+context size. Start your reply with one short question in the user's own language, equivalent to:
+"Token Saver: at how many tokens of context should I offer a fresh session? Reply with a number
+like 100k, two like 150k,300k, or 'token-saver off'."
+This one line comes first even if the user asked for a short or one-line reply. Then carry on
+with their request as normal. Don't save anything yourself: the plugin reads the number from
+their next message.""", notice=SETUP_NOTICE)
+            return
 
     used, last_ts = read_transcript(data.get("transcript_path", ""))
     if used is None:
@@ -138,9 +221,6 @@ def main():
     kt = f"~{used/1000:.0f}k tokens"
     log(f"guard: context {kt}")
 
-    levels = parse_levels(opt("warn_tokens", DEFAULT_LEVELS))
-    state = data_dir() / "state"
-    state.mkdir(exist_ok=True)
     warned_f = state / f"{sid}.warned"
     seen = read_warned(warned_f)
     # Re-arm thresholds the context has dropped back under (after /compact), so growing
@@ -176,8 +256,7 @@ Call no tools; ask the question and stop.
   instead; never say "Done" without it.
 - If the user says no: carry out the request normally and don't ask again.
 """
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
-                                             "additionalContext": ctx}}))
+    emit(ctx)
 
 
 if __name__ == "__main__":
