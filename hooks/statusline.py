@@ -19,9 +19,16 @@ def k(n):
 
 
 def main():
+    try:  # the bar characters aren't in legacy Windows code pages
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
     try:
         d = json.load(sys.stdin)
     except Exception:
+        print("ctx ?")
+        return
+    if not isinstance(d, dict):
         print("ctx ?")
         return
     cw = d.get("context_window") or {}

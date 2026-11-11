@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 468" width="860" height="468" role="img" aria-label="Token Saver flow: Claude asks before a request runs on a large context, writes a handoff, and the next session continues from it">
+  <style>
+    .bg { fill: #0d1117; }
+    .bar { fill: #161b22; }
+    text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
+    .dim { fill: #8b949e; }
+    .you { fill: #58a6ff; }
+    .txt { fill: #e6edf3; }
+    .ok { fill: #3fb950; }
+    .warn { fill: #d29922; }
+    .rule { stroke: #30363d; stroke-width: 1; }
+  </style>
+  <rect class="bg" width="860" height="468" rx="10"/>
+  <rect class="bar" width="860" height="36" rx="10"/>
+  <rect class="bar" y="20" width="860" height="16"/>
+  <circle cx="22" cy="18" r="6" fill="#ff5f57"/>
+  <circle cx="42" cy="18" r="6" fill="#febc2e"/>
+  <circle cx="62" cy="18" r="6" fill="#28c840"/>
+  <text x="430" y="23" text-anchor="middle" class="dim">claude · session at ~152k tokens</text>
+
+  <text x="24" y="70"><tspan class="you">&gt; </tspan><tspan class="txt">rename foo to bar in main.py, but don't touch the tests</tspan></text>
+
+  <text x="24" y="104" class="warn">● Context is at ~152k tokens. To save tokens, shall I continue</text>
+  <text x="24" y="124" class="warn">  this request in a fresh session? (yes/no)</text>
+
+  <text x="24" y="158"><tspan class="you">&gt; </tspan><tspan class="txt">yes</tspan></text>
+
+  <text x="24" y="192" class="dim">  Write(.token-saver/handoff.md)</text>
+  <text x="24" y="212" class="dim">    ## Pending request</text>
+  <text x="24" y="232" class="dim">    rename foo to bar in main.py, but don't touch the tests</text>
+  <text x="24" y="258" class="ok">● Done. Type /clear, then say 'continue'.</text>
+
+  <text x="24" y="292"><tspan class="you">&gt; </tspan><tspan class="txt">/clear</tspan></text>
+  <line class="rule" x1="24" y1="310" x2="836" y2="310"/>
+  <text x="430" y="334" text-anchor="middle" class="dim">fresh session · handoff loaded automatically</text>
+  <line class="rule" x1="24" y1="348" x2="836" y2="348"/>
+
+  <text x="24" y="382"><tspan class="you">&gt; </tspan><tspan class="txt">continue</tspan></text>
+  <text x="24" y="416" class="ok">● Renaming foo to bar in main.py, leaving the tests alone…</text>
+  <text x="24" y="444" class="dim">  Every message from here on re-sends the small new context, not ~152k tokens.</text>
+</svg>

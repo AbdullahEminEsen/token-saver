@@ -31,8 +31,11 @@ def main():
     except Exception:
         print("{}")
         return
-    ti = data.get("tool_input") or {}
-    cmd = (ti.get("command") or "").strip()
+    ti = data.get("tool_input") if isinstance(data, dict) else None
+    if not isinstance(ti, dict):
+        print("{}")
+        return
+    cmd = str(ti.get("command") or "").strip()
     if not PATTERN.match(cmd):
         print("{}")
         return

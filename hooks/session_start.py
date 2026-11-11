@@ -3,9 +3,11 @@
 SessionStart hook (startup | clear | compact).
 
 1. Injects a short set of token-saving working rules (plugins can't ship a CLAUDE.md).
-   Skipped when TS_RULES=0 or the plugin option inject_rules is false.
-2. On startup/clear: if .claude/handoff.md exists in the project and is recent, loads it into
-   the new session and renames it to handoff.done.md so it is used only once.
+   Skipped when TS_INJECT_RULES=0 or the plugin option inject_rules is false.
+2. On startup/clear: if .token-saver/handoff.md exists in the project and is recent, loads it
+   into the new session and renames it to handoff.done.md so it is used only once.
+   (.claude/handoff.md, where v1.0 wrote it, is still read. New handoffs go to .token-saver/
+   because Claude Code treats .claude/ as sensitive and asks for permission on every write.)
 """
 import json, os, sys, time
 from pathlib import Path
@@ -23,24 +25,33 @@ RULES = """[token-saver] Working rules for this session (to keep token usage low
 - If you are compacting: keep the user's goal, the pending request verbatim, changed files and why, decisions, and the next step; drop tool output and resolved debugging."""
 
 
+HANDOFF_DIRS = (".token-saver", ".claude")  # current location first, then the v1.0 one
+
+
 def main():
     try:
         data = json.load(sys.stdin)
     except Exception:
         data = {}
-    source = data.get("source", "")
+    if not isinstance(data, dict):
+        data = {}
+    source = data.get("source") or ""
     parts = []
 
     if opt("inject_rules", "true").lower() not in ("0", "false", "no"):
         parts.append(RULES)
 
     root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or ".")
-    f = root / ".claude" / "handoff.md"
-    has = f.exists()
+    candidates = [root / d / "handoff.md" for d in HANDOFF_DIRS]
+    f = next((c for c in candidates if c.is_file()), candidates[0])
+    has = f.is_file()
     log(f"session-start: {source} ({root}) handoff={'yes' if has else 'no'}")
-    max_age_h = float(opt("handoff_max_age_h", "24"))
+    try:
+        max_age_h = float(opt("handoff_max_age_h", "24"))
+    except ValueError:
+        max_age_h = 24.0
     if source in ("startup", "clear", "") and has and time.time() - f.stat().st_mtime <= max_age_h * 3600:
-        body = f.read_text(encoding="utf-8", errors="ignore").strip()
+        body = f.read_text(encoding="utf-8-sig", errors="replace").strip()
         if body:
             try:
                 f.replace(f.with_name("handoff.done.md"))
@@ -59,4 +70,7 @@ the "Pending request" directly without asking for confirmation again.
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:  # never break session start
+        log(f"session-start: error {exc!r}")

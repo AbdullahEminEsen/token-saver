@@ -1,7 +1,7 @@
 {
   "name": "token-saver",
   "displayName": "Token Saver",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Cuts Claude Code token usage: offers a fresh session with an automatic handoff when context gets large, filters test output down to failures, and adds lean working rules.",
   "author": {
     "name": "Abdullah Emin Esen",
